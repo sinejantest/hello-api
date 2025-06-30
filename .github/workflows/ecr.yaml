@@ -1,40 +1,53 @@
-name: Push to ECR
-
+name: Github Action
 on:
   push:
     branches:
-      - main
-
+      - main 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: testecr
+  ECS_TASK_DEFINITION: .github/workflows/task-definition.json 
+  IMAGE_NAME: ecs-producer
+  ACCOUNT_ID: 214743469229
   IMAGE_TAG: latest
-  IMAGE_NAME: hello-api
-  ACCOUNT_ID: 214743469229  
+
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  build-and-push:
+  deploy:
+    name: Deploy to ECS Fargate
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.0.1
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
           role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/oicd-role
-          role-session-name: github-to-aws-session
+          role-session-name: github.to.aws.oicd
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag, and push Docker image
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+       
         run: |
-          docker build -t $IMAGE_NAME .
-          docker tag $IMAGE_NAME:latest $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          # Build the Docker image
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+          
+          # Tag the image for ECR
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          
+          # Push the image to ECR
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          
+          # Set output for the next steps
+          echo "image=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
